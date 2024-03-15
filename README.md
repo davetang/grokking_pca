@@ -9,3 +9,13 @@ Use a RStudio Server Docker image.
 ```console
 ./script/run_rstudio.sh
 ```
+
+## Data
+
+Use `download.sh` to download the example data.
+
+```console
+cd script && ./download.sh
+tar xzf data.tar.gz --directory ../
+rm data.tar.gz
+```
