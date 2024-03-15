@@ -3,53 +3,147 @@ title: "Chapter 7"
 format: html
 ---
 
-```{r}
+## Learning outcomes
+
+* See examples of matrices that come up in the study of biological data.
+* Perform dimension reduction to understand correlations between variables.
+* Preprocess, rescale, and centre data before starting a multivariate analysis.
+* Build new variables, called principal components (PCs), that are more useful than the original measurements.
+* See what is "under the hood" of PCA: the singular value decomposition of a matrix.
+* Visualise what SVD achieves and learn how to choose the number of principal components.
+* Run through a complete PCA from start to finish.
+* Project factor covariates onto the PCA map for a more useful interpretation of results.
+
+## Example data
+
+The `turtles` dataset is a matrix of three dimensions of biometric measurements on painted turtles.
+
+```{r turtles}
 turtles = read.table("../data/PaintedTurtles.txt", header = TRUE)
 turtles[1:4, ]
 ```
 
+The `athletes` dataset contains the performance of 33 athletes in the 10 disciplines of the [decathlon](https://en.wikipedia.org/wiki/Decathlon).
 
-```{r}
+```{r athletes}
 load("../data/athletes.RData")
 athletes[1:3, ]
 ```
 
-```{r}
+Summary of each decathlon event.
+
+```{r athletes_summary}
 stopifnot(nrow(athletes) == 33, ncol(athletes) == 10)
 athletesSummary = lapply(athletes, function(x) c(min = min(x), max = max(x), mean = mean(x), sd = sd(x)))
+athletesSummary
 ```
 
-```{r}
+The `Msig3transp` dataset contains gene expression profiles of sorted T-cell populations from different subjects. The columns are a subset of gene expression measurements and correspond to 156 genes that show differential expression between cell types.
+
+```{r msig3transp}
 load("../data/Msig3transp.RData")
-round(Msig3transp,2)[1:5, 1:6]
+dim(Msig3transp)
 ```
 
-```{r}
+The `GlobalPatterns` dataset is from the [phyloseq](https://bioconductor.org/packages/release/bioc/html/phyloseq.html) package. It contains counts of different species (or Operational Taxonomic Units, OTUs) of bacteria, which are identified by numerical tags. The rows are labelled according to the samples in which they were measured and the (integer) numbers represent the number of times each OTU was observed in each of the samples.
+
+```{r global_patterns}
+data("GlobalPatterns", package = "phyloseq")
+GPOTUs = as.matrix(t(phyloseq::otu_table(GlobalPatterns)))
+GPOTUs[1:4, 6:13]
+```
+
+The `airway` dataset contains RNA-seq data for different biological samples (columns).
+
+```{r airway}
+library("SummarizedExperiment")
+data("airway", package = "airway")
+assay(airway)[1:3, 1:4]
+```
+
+The `metab` dataset contains aligned mass spectroscopy peaks or molecules identified through their _m_ / _z_ ratios; the entries in the matrix are the measured intensities.
+
+```{r metab}
 metab = t(as.matrix(read.csv("../data/metabolites.csv", row.names = 1)))
 metab[1:4, 1:4]
 ```
+
+Frequency of zeros.
+
+```{r freq_zeros}
+prop.table(table(as.vector(GPOTUs == 0)))
+prop.table(table(metab == 0))
+prop.table(table(assay(airway) == 0))
+```
+
+## Low-dimensional data summaries
+
+If we are studying only one variable, e.g., just the third column of the turtles matrix, we say we are looking at one-dimensional data. Such a vector, say all the turtle weights, can be visualised using a histogram. If we compute a one-number summary, say mean or median, we have made a zero-dimensional summary of our one-dimensional data. This is already an example of dimension reduction.
+
+When considering two variables (x and y) measured together on a set of observations, the correlation coefficient measures how the variables co-vary. This is a single-number summary of two-dimensional data. Its formula involves the summaries $\bar{x}$ and $\bar{y}$:
+
+$$
+\hat{p} = \frac{\sum^n_{i=1}(x_i - \bar{x})(y_i - \bar{y})}{\sqrt{\sum^n_{i=1}(x_i - \bar{x})^2} \sqrt{\sum^n_{j=1}(y_j - \bar{y})^2}}
+$$
+
+In R, the `cor` function calculates the correlation coefficient and when applied to a matrix, this function computes all the two-way correlations between continuous variables.
 
 ```{r}
 cor(turtles[, -1])
 ```
 
+All the values are close to 1 and it seems that all three variables mostly reflect the same "underlying" variable, which we might interpret as the _size_ of the turtle.
 
+## Preprocessing the data
 
+In many cases, different variables are measured in different units, so they have different baselines and different scales. These are not directly comparable in their original form.
+
+For PCA and many other methods, we therefore need to transform the numeric values to some common scale in order to make comparisons meaningful.
+
+* **Centering** means subtracting the mean, so that the mean of the centered data is at the origin.
+* **Scaling** or **standardising** means dividing by the standard deviation, so that the new standard deviation is 1.
+
+The **correlation coefficient** is simply the vector product of the centered and scaled variables. To perform these operations, there is the `scale` function, whose default behaviour when given a matrix or data frame is to make every column have a mean of 0 and a standard deviation of 1.
+
+Standard deviation and mean before scaling.
 
 ```{r}
-library(ggplot2)
 apply(turtles[,-1], 2, sd)
 apply(turtles[,-1], 2, mean)
+```
+
+Standard deviation and mean after scaling.
+
+```{r}
 scaledTurtles = scale(turtles[, -1])
 apply(scaledTurtles, 2, mean)
 apply(scaledTurtles, 2, sd)
+```
+
+Plot scaled data.
+
+```{r}
+library(ggplot2)
 data.frame(scaledTurtles, sex = turtles[, 1]) |>
   ggplot(aes(x = width, y = height, group = sex)) +
     geom_point(aes(color = sex)) + coord_fixed()
 ```
 
+The aim of transformations is (usually) variance stabilisation, i.e., to make the variances of replicate measurements of _one and the same variable_ in different parts of its dynamic range more similar. The standardising transformation using `scale` aims to make the scale (as measured by mean and standard deviation) of _different variables_ the same.
 
-```{r}
+Sometimes it is preferable to leave variables at different scales because they are truly of different importance. If their original scale is relevant, then we can (and should) leave the data alone. After pre-processing the data, we are ready to undertake **data simplification** through **dimension reduction**.
+
+## Dimension reduction
+
+Dimension reduction was invented in 1901 by Karl Pearson as a way of reducing a two-variable scatterplot to a single coordinate. It was used by statisticians in the 1930s to summarise a battery of psychological tests run on the same subjects, thus providing overall scores that summarise many test variables at once. This idea of **principal** scores inspired the name principal component analysis (PCA).
+
+PCA is called an **unsupervised learning** technique because, as in clustering, it treats all variables as having the same **status**. We are not trying to predict or explain one particular variable's value from the others; rather, we are trying to find a mathematical model for an underlying structure for all the variables.
+
+PCA is primarily an exploratory technique that produces maps that show the relations between variables and between observations in a useful way.
+
+We use geometric **projections** that take points in higher-dimensional spaces and project them down onto lower dimensions. In the example below, point A is projected onto the red line generated by the vector $v$. The dashed projection line is perpendicular (or orthogonal) to the red line. The intersection point of the projection line and the red line is called the orthogonal projection of A onto the red line generated by the vector $v$.
+
+```{r figure_7.5}
 x1=1;x2=3;y1=1;y2=2;ax=2.5;ay=3;
 df=data.frame(x=c(x1,x2,ax),y=c(y1,y2,ay))
 ggplot(df, aes(x=x,y=y)) + 
@@ -69,7 +163,14 @@ ggplot(df, aes(x=x,y=y)) +
        geom_point(size=2)
 ```
 
+PCA is a **linear** technique, meaning that we look for linear relations between variables and that we will use new variables that are linear functions of the original ones ($f(ax + by) = af(x) + b(y)$). The linearity constraint makes computations particularly easy.
+
+### Lower-dimensional projections
+
+The code below shows one way of projecting two-dimensional data onto a line.
+
 ```{r}
+load("../data/athletes.RData")
 athletes = data.frame(scale(athletes))
 ath_gg = ggplot(athletes, aes(x = weight, y = disc)) +
   geom_point(size = 2, shape = 21)
@@ -77,6 +178,19 @@ ath_gg + geom_point(aes(y = 0), colour = "red") +
   geom_segment(aes(xend = weight, yend = 0), linetype = "dashed")
 ```
 
+The scatterplot shows two variables (weight and disc) that is projected onto the horizontal x-axis (defined by $y = 0$) in red, and the lines of projection appear as dashed.
+
+### How do we summarise two-dimensional data by a line?
+
+In general, we lose information about the points when we project from two dimensions (a plane) onto one (a line). If we do it just by using the original coordinates, as we did on the `weight` variable above, we lose all the information about the `disc` variable.
+
+Our goal is to keep as much information as we can about _both_ variables. There are actually many ways of projecting a point cloud onto a line. One is to use what are known as **regressionlines**.
+
+#### Regressing one variable on the other
+
+**Linear regression** is a **supervised** method that gives preference to minimising the residual sum of squares in one direction: that of the response variable.
+
+Below we use the `lm` (linear model) function to find the regression line. Its slope and intercept are given by the values in the `coefficients` slot of the resulting object `reg1`.
 
 ```{r}
 reg1 = lm(disc ~ weight, data = athletes)
@@ -88,6 +202,9 @@ pline1 + geom_segment(aes(xend = weight, yend = reg1$fitted),
     colour = "red", arrow = arrow(length = unit(0.15, "cm")))
 ```
 
+The blue line minimises the sum of squares of the vertical residuals (in red).
+
+The code below shows the line produced when the roles of the two variables are reversed; `weight` becomes the response variable.
 
 ```{r}
 reg2 = lm(weight ~ disc, data = athletes)
@@ -99,12 +216,31 @@ pline2 + geom_segment(aes(xend=reg2$fitted, yend=disc),
     colour = "orange", arrow = arrow(length = unit(0.15, "cm")))
 ```
 
+The green line minimises the sum of squares of the horizontal residuals (in orange).
+
+Each of the regression lines gives us an approximate linear relationship between `disc` and `weight`. However, the relationship differs depending on which variable we choose to be the **predictor** and which the **response**.
+
+How large is the variance of the projected points that lie on the blue regression line? Compare this to the variance of the data when projected on the original axes, `weight` and `disc`.
+
+Pythagoras' theorem tells us that the square of the hypotenuse of a right-angled triangle is equal to the sum of the squares of the other two sides, which we apply as follows.
+
 ```{r}
 var(athletes$weight) + var(reg1$fitted)
 ```
 
+The variances of the points along the original axes `weight` and `disc` are 1, since we scaled the variables.
+
+Variance of the projected points that lie on the green regression line.
 
 ```{r}
+var(athletes$disc) + var(reg2$fitted)
+```
+
+#### A line that minimises distance in both directions
+
+The code below generates a line that minimises the sum of squares of the orthogonal (perpendicular) projections of data points onto it; we call this the **principal component** line.
+
+```{r fig.width=6, fig.height=6}
 stopifnot(all.equal(c(var(athletes$weight), var(athletes$disc)), c(1,1)))
 xy = cbind(athletes$disc, athletes$weight)
 svda = svd(xy)
@@ -115,7 +251,9 @@ ath_gg + geom_segment(xend = pc[, 1], yend = pc[, 2]) +
   geom_abline(intercept = ap, slope = bp, col = "purple", linewidth = 1.5)
 ```
 
-```{r}
+All of the three ways of fitting a line are shown together in the plot below.
+
+```{r fig.width=6, fig.height=6}
 pline1 + geom_segment(aes(xend = weight, yend = reg1$fitted), colour = "blue", alpha = 0.35) +
   geom_abline(intercept = -a2/b2, slope = 1/b2, col = "darkgreen", linewidth = 1.5, alpha = 0.8) +
   geom_segment(aes(xend = reg2$fitted, yend = disc), colour = "orange", alpha = 0.35) +
@@ -123,14 +261,25 @@ pline1 + geom_segment(aes(xend = weight, yend = reg1$fitted), colour = "blue", a
   geom_segment(xend = pc[, 1], yend = pc[, 2], colour = "purple", alpha = 0.35) + coord_fixed()
 ```
 
+The purple PCA line cuts exactly in the middle of both regression lines. The blue line minimises the sum of squares of the vertical residuals, the green line minimises the horizontal residuals, and the purple line, called the principal component, minimises the orthogonal projections.
+
+The variance of the points on the purple line can be calculated by using `var` on the new coordinates.
 
 ```{r}
 apply(pc, 2, var)
 sum(apply(pc, 2, var))
 ```
 
+The variance along the purple line is larger than the variance using the regression lines.
 
-    'SVD-mosaicXplot1.png', 'SVD-mosaicXplot2.png', 'SVD-mosaicXplot3.png')))
+Pythagoras' theorem tells us two interesting things here:
+
+1. If we are minimising in both horizontal and vertical directions, we are in fact minimising the orthogonal projections onto the line from each point.
+2. The total variability of the points is measured by the sum of squares of the projection of the points onto the center of gravity, which is the origin (0,0) if the data are centered. This is called the _total variance_ or the **inertia** of the point cloud. This inertia can be decomposed into the sum of the squares of the projections onto the line plus the variances along that line. For a fixed variance, minimising the projection distances also maximises the variance along that line. Often we define the first principal component as the line with maximum variance.
+
+## The new linear combinations
+
+TBC.
 
 ```{r}
 .savedopt = options(digits = 3)
@@ -284,57 +433,46 @@ sd1 = sqrt(mean(res$scores[, 1]^2))
 
 ```
 
+```{r}
 
-## -----------------------------------------------------------------------------
+
 fviz_pca_biplot(pcaturtles, label = "var", habillage = turtles[, 1]) +
   ggtitle("")
 
-## -----------------------------------------------------------------------------
 pcadudit = dudi.pca(scaledTurtles, nf = 2, scannf = FALSE)
 apply(pcadudit$li, 2, function(x) sum(x^2)/48)
 pcadudit$eig
 
-## -----------------------------------------------------------------------------
 fviz_pca_var(pcaturtles, col.circle = "black") + ggtitle("") +
   xlim(c(-1.2, 1.2)) + ylim(c(-1.2, 1.2))
 
-## -----------------------------------------------------------------------------
 svd(scaledTurtles)$d/pcaturtles$sdev
 sqrt(47)
 
-## -----------------------------------------------------------------------------
 cor(athletes) %>% round(1)
 
-## -----------------------------------------------------------------------------
 pca.ath = dudi.pca(athletes, scannf = FALSE)
 pca.ath$eig
 fviz_eig(pca.ath, geom = "bar", bar_width = 0.3) + ggtitle("")
 
-## -----------------------------------------------------------------------------
 fviz_pca_var(pca.ath, col.circle = "black") + ggtitle("")
 
-## -----------------------------------------------------------------------------
 athletes[, c(1, 5, 6, 10)] = -athletes[, c(1, 5, 6, 10)]
 cor(athletes) %>% round(1)
 pcan.ath = dudi.pca(athletes, nf = 2, scannf = FALSE)
 pcan.ath$eig
 
-## -----------------------------------------------------------------------------
 fviz_pca_var(pcan.ath, col.circle="black") + ggtitle("")
 
-## -----------------------------------------------------------------------------
 fviz_pca_ind(pcan.ath) + ggtitle("") + ylim(c(-2.5,5.7))
 
-## -----------------------------------------------------------------------------
 data("olympic", package = "ade4")
 olympic$score
 
-## -----------------------------------------------------------------------------
 p = ggplot(tibble(pc1 = pcan.ath$li[, 1], score = olympic$score, id = rownames(athletes)),
    aes(x = score, y = pc1, label = id)) + geom_text()
 p + stat_smooth(method = "lm", se = FALSE)
 
-## -----------------------------------------------------------------------------
 load("../data/screep7.RData")
 pcaS7 = dudi.pca(screep7, scannf = FALSE)
 fviz_eig(pcaS7,geom="bar",bar_width=0.5) + ggtitle("")
@@ -345,12 +483,10 @@ fviz_eig(pcaS7,geom="bar",bar_width=0.5) + ggtitle("")
 #p7$sdev^2
 #plot(p7)
 
-## -----------------------------------------------------------------------------
 pcaMsig3 = dudi.pca(Msig3transp, center = TRUE, scale = TRUE,
                     scannf = FALSE, nf = 4)
 fviz_screeplot(pcaMsig3) + ggtitle("")
 
-## -----------------------------------------------------------------------------
 ids = rownames(Msig3transp)
 celltypes = factor(substr(ids, 7, 9))
 status = factor(substr(ids, 1, 3))
@@ -362,7 +498,6 @@ ggplot(aes(x = Axis1, y = Axis2)) +
   geom_vline(xintercept = 0, linetype = 2) +
   scale_color_discrete(name = "Cluster") + coord_fixed()
 
-## -----------------------------------------------------------------------------
 ## # For the record:
 ## library("xcms")
 ## cdfpath = system.file("cdf", package = "faahKO")
@@ -375,13 +510,11 @@ ggplot(aes(x = Axis1, y = Axis2)) +
 ## gt = groups(xset3)
 ## mat1 = groupval(xset3, value = "into")
 
-## -----------------------------------------------------------------------------
 load("../data/mat1xcms.RData")
 dim(mat1)
 pcamat1 = dudi.pca(t(mat1), scannf = FALSE, nf = 3)
 fviz_eig(pcamat1, geom = "bar", bar_width = 0.7) + ggtitle("")
 
-## -----------------------------------------------------------------------------
 dfmat1 = cbind(pcamat1$li, tibble(
     label = rownames(pcamat1$li),
     number = substr(label, 3, 4),
@@ -392,24 +525,20 @@ pcsplot = ggplot(dfmat1,
 pcsplot + geom_hline(yintercept = 0, linetype = 2) +
   geom_vline(xintercept = 0, linetype = 2)
 
-## -----------------------------------------------------------------------------
 pcsplot + geom_line(colour = "red")
 
-## -----------------------------------------------------------------------------
 library("pheatmap")
 load("../data/wine.RData")
 load("../data/wineClass.RData")
 wine[1:2, 1:7]
 pheatmap(1 - cor(wine), treeheight_row = 0.2)
 
-## -----------------------------------------------------------------------------
 winePCAd = dudi.pca(wine, scannf=FALSE)
 table(wine.class)
 fviz_pca_biplot(winePCAd, geom = "point", habillage = wine.class,
    col.var = "violet", addEllipses = TRUE, ellipse.level = 0.69) +
    ggtitle("") + coord_fixed()
 
-## -----------------------------------------------------------------------------
 data("x", package = "Hiiragi2013")
 xwt = x[, x$genotype == "WT"]
 sel = order(rowVars(Biobase::exprs(xwt)), decreasing = TRUE)[1:100]
@@ -417,51 +546,41 @@ xwt = xwt[sel, ]
 tab = table(xwt$sampleGroup)
 tab
 
-## -----------------------------------------------------------------------------
 xwt$weight = 1 / as.numeric(tab[xwt$sampleGroup])
 pcaMouse = dudi.pca(as.data.frame(t(Biobase::exprs(xwt))),
   row.w = xwt$weight,
   center = TRUE, scale = TRUE, nf = 2, scannf = FALSE)
 fviz_eig(pcaMouse) + ggtitle("")
 
-## -----------------------------------------------------------------------------
 ## fviz_pca_ind(pcaMouse, geom = "point", col.ind = xwt$sampleGroup) +
 ##   ggtitle("") + coord_fixed()
 
-## -----------------------------------------------------------------------------
 # TODO: duplicate of the above to avoid overlap; 
 # can be removed once Quarto resolves this
 fviz_pca_ind(pcaMouse, geom = "point", col.ind = xwt$sampleGroup) +
   ggtitle("") + coord_fixed()
 
-## -----------------------------------------------------------------------------
 u = seq(2, 30, by = 2)
 v = seq(3, 12, by = 3)
 X1 = u %*% t(v)
 
-## -----------------------------------------------------------------------------
 Materr = matrix(rnorm(60,1),nrow=15,ncol=4)
 X = X1+Materr
 
-## -----------------------------------------------------------------------------
 outer(u, v)
 
-## -----------------------------------------------------------------------------
 ggplot(data=data.frame(X), aes(x=X1, y=X2, col=X3, size=X4)) + geom_point()
 
-## -----------------------------------------------------------------------------
 n = 100
 p = 4
 Y2 = outer(rnorm(n), rnorm(p)) + outer(rnorm(n), rnorm(p))
 head(Y2)
 ggplot(data=data.frame(Y2), aes(x=X1, y=X2, col=X3, size=X4)) + geom_point()
 
-## -----------------------------------------------------------------------------
 svd(Y2)$d # two non-zero eigenvalues
 Y = Y2 + matrix(rnorm(n*p, sd=0.01),n,p) # add some noise to Y2
 svd(Y)$d # four non-zero eigenvalues (but only 2 big ones)
 
-## -----------------------------------------------------------------------------
 library("MASS")
 mu1 = 1; mu2 = 2; s1=2.5; s2=0.8; rho=0.9;
 sigma = matrix(c(s1^2, s1*s2*rho, s1*s2*rho, s2^2),2)
@@ -469,7 +588,6 @@ sim2d = data.frame(mvrnorm(50, mu = c(mu1,mu2), Sigma = sigma))
 svd(scale(sim2d))$d
 svd(scale(sim2d))$v[,1]
 
-## -----------------------------------------------------------------------------
 respc = princomp(sim2d)
 dfpc  = data.frame(pc1=respc$scores[,1], 
                    pc2=respc$scores[,2])
@@ -477,7 +595,6 @@ dfpc  = data.frame(pc1=respc$scores[,1],
 ggplot(data.frame(sim2d), aes(x=X1,y=X2)) + geom_point()
 ggplot(dfpc, aes(x=pc1, y=pc2)) + geom_point() + coord_fixed(2)
 
-## -----------------------------------------------------------------------------
 ## require(vcd)
 ## uvec0=c(1,5.2,0.5,3.6)
 ## n=length(uvec0)-1
@@ -516,13 +633,11 @@ ggplot(dfpc, aes(x=pc1, y=pc2)) + geom_point() + coord_fixed(2)
 ## xtab=xtable(Xsub,floating=FALSE,digits=0)
 ## xtab
 
-## -----------------------------------------------------------------------------
 ## np = prod(dim(Xmat))
 ## rainbow_colors = colorspace::rainbow_hcl(np, c = 50, l = 70, start = 30, end = 360*(np-1)/np)
 ## mycols = rainbow_colors[1:np]
 ## mycols[c(1:(n+1), seq(n+2,(n+1)*(p+1),n+1))] = "white"
 
-## -----------------------------------------------------------------------------
 ## Xmat0=Xmat
 ## #dimnames(Xmat0)=NULL
 ## mosaic(Xmat,pop=FALSE,  gp = gpar(fill=matrix(mycols,ncol=p+1),fontsize=14))
@@ -531,21 +646,18 @@ ggplot(dfpc, aes(x=pc1, y=pc2)) + geom_point() + coord_fixed(2)
 ## labeling_cells(text = tabf0,clip=FALSE,gp_labels = gpar(fontsize = 14))(tabf0)
 ## #labeling_border(labels =FALSE)
 
-## -----------------------------------------------------------------------------
 ## tabf2=tabf1
 ## tabf2[-1,1]=0.1*tabf1[-1,1]
 ## tabf2[1,-1]=0.1*tabf1[1,-1]
 ## mosaic(Xmat,pop=FALSE,  gp = gpar(fill=matrix(mycols,ncol=p+1),fontsize=14))
 ## labeling_cells(text = tabf2,clip=FALSE,gp_labels = gpar(fontsize = 14))(tabf2)
 
-## -----------------------------------------------------------------------------
 ## tabf3=tabf1
 ## tabf3[-1,1]=0.05*tabf1[-1,1]
 ## tabf3[1,-1]=0.2*tabf1[1,-1]
 ## mosaic(Xmat,pop=FALSE,  gp = gpar(fill=matrix(mycols,ncol=p+1),fontsize=14))
 ## labeling_cells(text = tabf3,clip=FALSE,gp_labels = gpar(fontsize = 14))(tabf3)
 
-## -----------------------------------------------------------------------------
 ## USV=svd(Xsub)
 ## tabusv=tabf0
 ## tabusv[1,]=c(round(USV$d[1],1),round(USV$v[,1],1))
@@ -554,7 +666,6 @@ ggplot(dfpc, aes(x=pc1, y=pc2)) + geom_point() + coord_fixed(2)
 ## mosaic(Xmat,pop=FALSE,  gp = gpar(fill=matrix(mycols,ncol=5),fontsize = 14))
 ## labeling_cells(text = tabusv,clip=FALSE,gp_labels = gpar(fontsize = 14))(tabusv)
 
-## -----------------------------------------------------------------------------
 ## u2=c(5,2,3,4,1.5)
 ## v2=c(2,7,3,4)
 ## u3=c(0.5,1,2,2,3)
@@ -568,18 +679,17 @@ ggplot(dfpc, aes(x=pc1, y=pc2)) + geom_point() + coord_fixed(2)
 ## mosaic(Xmat4,pop=FALSE,  gp = gpar(fill=matrix(mycols,ncol=p+1),fontsize=14))
 ## labeling_cells(text = tab3f0,clip=FALSE,gp_labels = gpar(fontsize = 14))(tab3f0)
 
-## -----------------------------------------------------------------------------
 ## tab3f1=makelabels(Xmat3,step=1)
 ## mosaic(Xmat3,pop=FALSE,  gp = gpar(fill=matrix(mycols,ncol=p+1),fontsize=14))
 ## labeling_cells(text = tab3f1,clip=FALSE,gp_labels = gpar(fontsize = 14))(tab3f1)
 
-## -----------------------------------------------------------------------------
 ## tab2f1=makelabels(Xmat2,step=1)
 ## mosaic(Xmat2,pop=FALSE,  gp = gpar(fill=matrix(mycols,ncol=p+1),fontsize=14))
 ## labeling_cells(text = tab2f1,clip=FALSE,gp_labels = gpar(fontsize = 14))(tab2f1)
 
-## -----------------------------------------------------------------------------
 ## Xsub4=Xmat4[-1,-1]
 ## Xsub3=Xmat3[-1,-1]
 ## Xsub2=Xmat2[-1,-1]
 ## svd(Xsub3)
+
+```
