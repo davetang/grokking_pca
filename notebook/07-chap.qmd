@@ -279,7 +279,29 @@ Pythagoras' theorem tells us two interesting things here:
 
 ## The new linear combinations
 
-TBC.
+The PC line we found in the previous section could be written:
+
+$$
+PC = \frac{1}{2}disc + \frac{1}{2}weight
+$$
+
+Principal components are _linear combinations_ of the variables that were originally measured: they provide a _new coordinate system_. To understand what a **linear combination** really is, we can take an analogy. When making a juice mix, you will follow a recipe like:
+
+$$
+V = 2 \times Beet + 1 \times Carrot + \frac{1}{2} Gala + \frac{1}{2}GrannySmith + 0.02 \times Ginger + 0.25 \times lemon
+$$
+
+This recipe is a linear combination of individual juice types (the original variables). The result is a new variable, V, and the coefficients (2, 1, 0.5, 0.5, 0.02, 0.25) are called the **loadings**.
+
+### Optimal lines
+
+A linear combination of variables defines a line in higher dimensions in the same way we constructed lines in the scatterplot plane of two dimensions. As we saw in that case, there are many ways to choose lines onto which we project the data; there is, however, a "best" line for our purpose.
+
+The total variance of all the points in all the variables can be decomposed. In PCA, we use the fact that the total sums of squares of the distances between the points and any line can be decomposed into the distance to the line and the variance along the line.
+
+We saw that the principal component mimimises the distance to the line, and it also maximises the variance of the projections along the line.
+
+## The PCA workflow
 
 ```{r}
 .savedopt = options(digits = 3)
