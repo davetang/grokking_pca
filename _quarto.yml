@@ -1,0 +1,20 @@
+project:
+  title: "Grokking PCA"
+  type: website
+  output-dir: _site
+  render:
+    - "**/*.qmd"
+
+website:
+  title: "Grokking PCA"
+  navbar:
+    left:
+      - text: "Home"
+        href: index.qmd
+      - text: "Chapter 7"
+        href: notebook/07-chap.qmd
+
+format:
+  html:
+    theme: cosmo
+    toc: true

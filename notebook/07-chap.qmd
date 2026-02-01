@@ -1,7 +1,31 @@
 ---
-title: "Chapter 7"
-format: html
+title: "Chapter 7: Multivariate Analysis"
 ---
+
+## Setup
+
+Install required packages if missing.
+
+```{r setup}
+#| message: false
+#| warning: false
+
+cran_packages <- c("ggplot2", "factoextra", "ade4", "pheatmap", "MASS", "tibble")
+bioc_packages <- c("SummarizedExperiment", "phyloseq", "airway", "Hiiragi2013", "Biobase")
+
+cran_missing <- cran_packages[!sapply(cran_packages, requireNamespace, quietly = TRUE)]
+if (length(cran_missing) > 0) {
+  install.packages(cran_missing)
+}
+
+bioc_missing <- bioc_packages[!sapply(bioc_packages, requireNamespace, quietly = TRUE)]
+if (length(bioc_missing) > 0) {
+  if (!requireNamespace("BiocManager", quietly = TRUE)) {
+    install.packages("BiocManager")
+  }
+  BiocManager::install(bioc_missing)
+}
+```
 
 ## Learning outcomes
 
@@ -433,11 +457,12 @@ stopifnot(sd(ppdf$PC1n) / sd(ppdf$PC2n) - svda$d[1] / svda$d[2] < 1e-9)
 cor(scaledTurtles)
 pcaturtles = princomp(scaledTurtles)
 pcaturtles
-
 ```
 
+```{r}
 library("factoextra")
 fviz_eig(pcaturtles, geom = "bar", bar_width = 0.4) + ggtitle("")
+```
 
 ```{r, eval=FALSE}
 svd(scaledTurtles)$v[, 1]
@@ -456,7 +481,8 @@ sd1 = sqrt(mean(res$scores[, 1]^2))
 ```
 
 ```{r}
-
+library("ade4")
+library("tibble")
 
 fviz_pca_biplot(pcaturtles, label = "var", habillage = turtles[, 1]) +
   ggtitle("")
@@ -471,7 +497,7 @@ fviz_pca_var(pcaturtles, col.circle = "black") + ggtitle("") +
 svd(scaledTurtles)$d/pcaturtles$sdev
 sqrt(47)
 
-cor(athletes) %>% round(1)
+cor(athletes) |> round(1)
 
 pca.ath = dudi.pca(athletes, scannf = FALSE)
 pca.ath$eig
@@ -480,7 +506,7 @@ fviz_eig(pca.ath, geom = "bar", bar_width = 0.3) + ggtitle("")
 fviz_pca_var(pca.ath, col.circle = "black") + ggtitle("")
 
 athletes[, c(1, 5, 6, 10)] = -athletes[, c(1, 5, 6, 10)]
-cor(athletes) %>% round(1)
+cor(athletes) |> round(1)
 pcan.ath = dudi.pca(athletes, nf = 2, scannf = FALSE)
 pcan.ath$eig
 
@@ -513,7 +539,7 @@ ids = rownames(Msig3transp)
 celltypes = factor(substr(ids, 7, 9))
 status = factor(substr(ids, 1, 3))
 table(celltypes)
-cbind(pcaMsig3$li, tibble(Cluster = celltypes, sample = ids)) %>%
+cbind(pcaMsig3$li, tibble(Cluster = celltypes, sample = ids)) |>
 ggplot(aes(x = Axis1, y = Axis2)) +
   geom_point(aes(color = Cluster), size = 5) +
   geom_hline(yintercept = 0, linetype = 2) +

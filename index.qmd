@@ -1,0 +1,9 @@
+---
+title: "Grokking PCA"
+---
+
+Learning Principal Component Analysis (PCA) and Singular Value Decomposition (SVD) based on Chapter 7 of [Modern Statistics for Modern Biology](https://web.stanford.edu/class/bios221/book/).
+
+## Notebooks
+
+- [Chapter 7: Multivariate Analysis](notebook/07-chap.qmd) - PCA and SVD fundamentals
